@@ -1,0 +1,11 @@
+build/
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+*.onnx
+*.bmp
+*.jpg
+*.png
+*.pt
+
