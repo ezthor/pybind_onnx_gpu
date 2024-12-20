@@ -41,11 +41,15 @@ int main(int argc, char* argv[]) {
                       << static_cast<int>(status) << std::endl;
         }
 
-        // 测试批量处理
-        std::vector<cv::Mat> bmp_images(100, bmp_image);
-        std::vector<cv::Mat> tiff_images(100);
+        // 在main.cpp中设置批大小
+        const int BATCH_SIZE = 16;  // 可以根据需要调整这个值
+
+        // 创建批处理输入
+        std::vector<cv::Mat> bmp_images(BATCH_SIZE, bmp_image);  // 使用同一张图片复制BATCH_SIZE次
+        std::vector<cv::Mat> tiff_images(BATCH_SIZE);
         std::vector<cv::Mat> masks;
 
+        // 测试批处理性能
         auto start = std::chrono::high_resolution_clock::now();
         status = evaluator.evaluateBatch(bmp_images, tiff_images, masks);
         auto end = std::chrono::high_resolution_clock::now();
@@ -53,10 +57,10 @@ int main(int argc, char* argv[]) {
         if (status == GoldWireSeg::Status::SUCCESS) {
             std::chrono::duration<double> elapsed_seconds = end - start;
             std::cout << "Batch processing completed successfully" << std::endl;
-            std::cout << "Total inference time for 100 runs: " 
+            std::cout << "Total inference time for " << BATCH_SIZE << " runs: " 
                       << elapsed_seconds.count() << "s\n";
             std::cout << "Average time per inference: " 
-                      << (elapsed_seconds.count() / 100) << "s\n";
+                      << (elapsed_seconds.count() / BATCH_SIZE) << "s\n";
         } else {
             std::cerr << "Batch processing failed with status: " 
                       << static_cast<int>(status) << std::endl;

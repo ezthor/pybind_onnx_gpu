@@ -11,7 +11,140 @@ from typing import List
 class YOLO_ONNX:
     def __init__(self, model_path:str = "./best.onnx"):
         self.model = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        # 预先计算目标尺寸
+        self.dst_size = (640, 640)
+        self.dst_w, self.dst_h = self.dst_size
 
+    def preprocess_batch(self, images: List[np.ndarray]):
+        """优化的批量预处理"""
+        batch_data = []
+        transforms = []
+        
+        for image in images:
+            # 计算缩放比例和偏移量
+            scale = min(self.dst_w / image.shape[1], self.dst_h / image.shape[0])
+            ox = (self.dst_w - scale * image.shape[1]) / 2
+            oy = (self.dst_h - scale * image.shape[0]) / 2
+            
+            # 创建变换矩阵
+            M = np.array([[scale, 0, ox], [0, scale, oy]], dtype=np.float32)
+            IM = cv2.invertAffineTransform(M)
+            
+            # 仿射变换（使用常量边界填充）
+            img_pre = cv2.warpAffine(image, M, self.dst_size, 
+                                   flags=cv2.INTER_LINEAR,
+                                   borderMode=cv2.BORDER_CONSTANT, 
+                                   borderValue=(114, 114, 114))
+            
+            # 一次性完成归一化和转置操作
+            img_pre = img_pre[..., ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0
+            
+            batch_data.append(img_pre)
+            transforms.append(IM)
+            
+        return np.stack(batch_data), transforms
+
+    def postprocess_batch(self, results, original_images, transforms):
+        """优化的批量后处理"""
+        batch_size = len(original_images)
+        masks_list = []
+        
+        # 批量处理检测结果
+        box_results = results[0].transpose(0, 2, 1)  # 批量转置
+        seg_results = results[1]  # 批量分割结果
+        
+        for i in range(batch_size):
+            # 处理单个图像的检测框
+            box_result = box_results[i:i+1]
+            box_dets = self.box_process(box_result)
+            box_dets = torch.from_numpy(np.array(box_dets).reshape(-1, 38))
+            
+            if len(box_dets) == 0:
+                # 如果没有检测到目标，返回空白掩码
+                h, w = original_images[i].shape[:2]
+                masks_list.append(np.zeros((h, w), dtype=np.uint8))
+                continue
+            
+            # 处理分割结果
+            seg_result = seg_results[i]
+            mask_results = self.mask_process(
+                seg_result,
+                box_dets[:, 6:],
+                box_dets[:, :4],
+                self.dst_size,
+                upsample=True
+            )
+            
+            # 转换回原始图像尺寸
+            h, w = original_images[i].shape[:2]
+            instance_mask = self.draw_instance_masks(
+                original_images[i], 
+                transforms[i], 
+                mask_results
+            )
+            masks_list.append(instance_mask)
+            
+        return masks_list
+
+    def predict_batch(self, images: List[np.ndarray]) -> List[np.ndarray]:
+        """
+        真正的批量处理图像
+        Args:
+            images: 图像列表，每个元素都是numpy数组
+        Returns:
+            mask列表
+        """
+        if not images:
+            return []
+
+        try:
+            # 1. 批量预处理
+            batch_input, transforms = self.preprocess_batch(images)
+            
+            # 2. 批量推理 - 一次性处理所有图片
+            results = self.model.run(None, {'images': batch_input})
+            
+            # 3. 批量后处理
+            return self.postprocess_batch(results, images, transforms)
+            
+        except Exception as e:
+            print(f"Error in batch processing: {str(e)}")
+            # 如果批处理失败，回退到逐个处理
+            masks = []
+            for image in images:
+                try:
+                    mask = self.predict(image)
+                    masks.append(mask)
+                except Exception as e:
+                    print(f"Error processing single image: {str(e)}")
+                    h, w = image.shape[:2]
+                    masks.append(np.zeros((h, w), dtype=np.uint8))
+            return masks
+
+    def predict(self, image: np.ndarray) -> np.ndarray:
+        """优化后的单图预测"""
+        # 使用批处理代码处理单张图片
+        batch_input, transforms = self.preprocess_batch([image])
+        results = self.model.run(None, {'images': batch_input})
+        masks = self.postprocess_batch(results, [image], transforms)
+        return masks[0]
+
+    def draw_instance_masks(self, image, IM, mask_results):
+        """优化的实例掩码绘制"""
+        h, w = image.shape[:2]
+        instance_mask = np.zeros((h, w), dtype=np.uint8)
+        
+        if len(mask_results) == 0:
+            return instance_mask
+            
+        # 批量处理所有掩码
+        for i, mask in enumerate(mask_results, 1):
+            mask = mask.cpu().numpy().astype(np.uint8)
+            mask_resized = cv2.warpAffine(mask, IM, (w, h),
+                                        flags=cv2.INTER_LINEAR)
+            instance_mask[mask_resized == 1] = i
+            
+        return instance_mask
 
     # 前处理
     def pre_process(self, image: np.ndarray)->np.ndarray:
@@ -271,51 +404,6 @@ class YOLO_ONNX:
 
 
         return mask_image
-
-    def predict_batch(self, images: List[np.ndarray]) -> List[np.ndarray]:
-        """
-        批量处理图像
-        Args:
-            images: 图像列表，每个元素都是numpy数���
-        Returns:
-            mask列表
-        """
-        batch_size = len(images)
-        if batch_size == 0:
-            return []
-
-        masks = []
-        # 由于模型限制batch_size=1，我们需要逐个处理图像
-        for image in images:
-            # 确保图像是numpy数组
-            image = np.asarray(image)
-            # 预处理图像
-            image, IM = self.preprocess_warpAffine(image)
-            
-            # 执行推理（保持batch_size=1）
-            results = self.model.run(None, {'images': image})
-            
-            # 处理结果
-            box_result = results[0].transpose(0, 2, 1)
-            seg_result = results[1][0]
-            
-            box_results = self.box_process(box_result)
-            box_results = torch.from_numpy(np.array(box_results).reshape(-1, 38))
-            
-            mask_results = self.mask_process(
-                seg_result, 
-                box_results[:, 6:], 
-                box_results[:, :4], 
-                (640, 640), 
-                upsample=True
-            )
-            
-            # 转换回原始图像尺寸
-            h, w = image.shape[2:4]  # 获取预处理后的图像尺寸
-            instance_mask = self.draw_instance_masks(np.asarray(image[0].transpose(1, 2, 0)), IM, mask_results)
-            masks.append(instance_mask)
-        
-        return masks
 
 # # 加载模型
 # model_path = r'D:\Gold_wire\code\weights\goldwire_complete.onnx'
