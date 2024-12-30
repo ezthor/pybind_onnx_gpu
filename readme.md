@@ -1,4 +1,9 @@
 # GoldWire Segmentation Project
+一种在C++中通过pybind11调用Python模块的方法
+
+此处实现的测试功能为调用python中的onnxruntime-gpu模块，实现金线分割项目
+
+实际需求为使用torch模块运行点云补全模型，亦测试通过
 
 金线分割项目测试说明文档
 
@@ -15,9 +20,11 @@
 ### Python 依赖安装
 
 ```bash
-pip install torch==2.4.1
+
 pip install onnx==1.17.0
 pip install onnxruntime-gpu==1.19.0
+# torch没有版本需求，仅前后处理模块需求
+pip install torch
 pip install opencv-python
 ```
 
