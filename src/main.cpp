@@ -6,8 +6,12 @@
 
 namespace py = pybind11;
 
+// GPU配置常量
+constexpr int GPU_ID = 0;          // 使用的GPU ID
+constexpr float GPU_MEM_GB = 4.0f; // GPU显存限制（GB）
+
 int main(int argc, char* argv[]) {
-    std::string model_path = "../weight/yolov8l-seg-640-origintype-3000.onnx";
+    std::string model_path = "../weight/yolov8l-seg-640-origintype-3000-dynamic.onnx";
     std::string image_path = "../data/test.bmp";
 
     if (argc > 1) {
@@ -25,8 +29,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // 创建评估器实例
-        GoldWireSeg::Evaluator evaluator(model_path);
+        // 创建评估器实例，使用GPU配置
+        GoldWireSeg::Evaluator evaluator(model_path, GPU_ID, GPU_MEM_GB);
 
         // 测试单张图片推理
         cv::Mat mask;

@@ -9,8 +9,42 @@ import torch.nn.functional as F
 from typing import List
 
 class YOLO_ONNX:
-    def __init__(self, model_path:str = "./best.onnx"):
-        self.model = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+    def __init__(self, model_path:str = "./best.onnx", gpu_id: int = 0, gpu_mem_gb: float = 4.0):
+        # 检查CUDA是否可用
+        cuda_available = 'CUDAExecutionProvider' in ort.get_available_providers()
+        if not cuda_available:
+            print("CUDA is not available, falling back to CPU")
+            providers = ['CPUExecutionProvider']
+        else:
+            provider_options = [
+                {
+                    'device_id': gpu_id,
+                    'arena_extend_strategy': 'kSameAsRequested',  # 按需分配
+                    'gpu_mem_limit': int(gpu_mem_gb * 1024 * 1024 * 1024),  # 转换GB为字节
+                    'cudnn_conv_algo_search': 'HEURISTIC',  # 启发式搜索
+                    'do_copy_in_default_stream': True,
+                }
+            ]
+            providers = [
+                ('CUDAExecutionProvider', provider_options[0]),
+                'CPUExecutionProvider'
+            ]
+        
+        try:
+            self.model = ort.InferenceSession(
+                model_path, 
+                providers=providers
+            )
+            # 验证是否真的在使用GPU
+            actual_provider = self.model.get_providers()[0]
+            print(f"Using provider: {actual_provider}")
+            if actual_provider == 'CUDAExecutionProvider':
+                print(f"Successfully initialized GPU {gpu_id}")
+            else:
+                print("Warning: Running on CPU")
+        except Exception as e:
+            print(f"Error initializing model: {e}")
+            raise
         # 预先计算目标尺寸
         self.dst_size = (640, 640)
         self.dst_w, self.dst_h = self.dst_size

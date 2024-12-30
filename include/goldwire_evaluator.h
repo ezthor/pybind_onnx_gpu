@@ -12,7 +12,7 @@ namespace GoldWireSeg {
 
 class Evaluator {
 public:
-    Evaluator(const std::string& model_path);
+    Evaluator(const std::string& model_path, int gpu_id = 0, float gpu_mem_gb = 4.0);
     ~Evaluator();
 
     Status evaluateSingle(const cv::Mat& bmp_image, 
