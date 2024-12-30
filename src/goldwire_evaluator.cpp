@@ -5,16 +5,18 @@
 
 namespace GoldWireSeg {
 
-Evaluator::Evaluator(const std::string& model_path) : model_path_(model_path) {
+Evaluator::Evaluator(const std::string& model_path, int gpu_id, float gpu_mem_gb) 
+    : model_path_(model_path) {
     try {
         // 导入sys模块并修改sys.path
         py::module sys = py::module::import("sys");
         sys.attr("path").cast<py::list>().append("../python");
 
-        // 导入模块
+        // 导入模块并指定GPU配置
         py::module model_module = py::module::import("onnx_model");
         py::object model_class = model_module.attr("YOLO_ONNX");
-        model_instance_ = model_class(model_path);
+        // 传入GPU ID和显存限制
+        model_instance_ = model_class(model_path, gpu_id, gpu_mem_gb);
     } catch (const std::exception& e) {
         std::cerr << "Error initializing Evaluator: " << e.what() << std::endl;
         throw;

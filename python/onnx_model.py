@@ -9,8 +9,43 @@ import torch.nn.functional as F
 from typing import List
 
 class YOLO_ONNX:
-    def __init__(self, model_path:str = "./best.onnx"):
-        self.model = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+    def __init__(self, model_path:str = "./best.onnx", gpu_id: int = 0, gpu_mem_gb: float = 2.0):
+        # 检查CUDA是否可用
+        cuda_available = 'CUDAExecutionProvider' in ort.get_available_providers()
+        if not cuda_available:
+            print("CUDA is not available, falling back to CPU")
+            providers = ['CPUExecutionProvider']
+        else:
+            provider_options = [
+                {
+                    'device_id': gpu_id,
+                    'arena_extend_strategy': 'kSameAsRequested',
+                    'gpu_mem_limit': int(gpu_mem_gb * 1024 * 1024 * 1024),
+                    'cudnn_conv_algo_search': 'HEURISTIC',
+                    'do_copy_in_default_stream': True,
+                }
+            ]
+            providers = [
+                ('CUDAExecutionProvider', provider_options[0]),
+                'CPUExecutionProvider'
+            ]
+        
+        try:
+            self.model = ort.InferenceSession(
+                model_path, 
+                providers=providers
+            )
+            # 验证是否真的在使用GPU
+            actual_provider = self.model.get_providers()[0]
+            print(f"Using provider: {actual_provider}")
+            if actual_provider == 'CUDAExecutionProvider':
+                print(f"Successfully initialized GPU {gpu_id}")
+            else:
+                print("Warning: Running on CPU")
+        except Exception as e:
+            print(f"Error initializing model: {e}")
+            raise
+        
         # 预先计算目标尺寸
         self.dst_size = (640, 640)
         self.dst_w, self.dst_h = self.dst_size
@@ -444,12 +479,62 @@ def model_infer(model_path, image):
     outputs = ort_session.run(None, {'images': image})
     return outputs
 
-if __name__ == "__main__":
-    model_path = r'D:\Gold_wire\code\weights\yolov8l-seg-640-origintype-3000.onnx'
-    image_path = r'D:\Gold_wire\code\data\data3\gray-bmp_all\baseView00005.bmp'
-    image = cv2.imread(image_path)
-    model = YOLO_ONNX(model_path)
-    results = model.predict(image)
+def check_cuda_version():
+    try:
+        import torch
+        cuda_version = torch.version.cuda
+        print(f"CUDA Version (from PyTorch): {cuda_version}")
+        
+        # 检查CUDA是否可用
+        if torch.cuda.is_available():
+            print(f"CUDA device count: {torch.cuda.device_count()}")
+            print(f"Current CUDA device: {torch.cuda.current_device()}")
+            print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+    except ImportError:
+        print("PyTorch not installed")
 
-    print(len(results[1]))
-    # model_detail(model_path)
+    print(f"ONNXRuntime Version: {ort.__version__}")
+    providers = ort.get_available_providers()
+    print(f"Available providers: {providers}")
+    
+    if 'CUDAExecutionProvider' in providers:
+        print("CUDA provider is available")
+    else:
+        print("Warning: CUDA provider not available")
+
+if __name__ == "__main__":
+    check_cuda_version()
+    # 测试配置
+    GPU_ID = 0          # 使用的GPU编号
+    GPU_MEM_GB = 2.0    # 显存限制（GB）
+    
+    # 测试路径
+    model_path = 'yolov8l-seg-640-augmentation1-dynamic.onnx'
+    image_path = "/home/wanghao/GoldwireSegWorkspace/code/test_folder/baseView00140.bmp"
+    
+    try:
+        # 读取测试图像
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"Failed to load image from {image_path}")
+            
+        print(f"\nInitializing model with GPU {GPU_ID} and {GPU_MEM_GB}GB memory limit...")
+        model = YOLO_ONNX(model_path, gpu_id=GPU_ID, gpu_mem_gb=GPU_MEM_GB)
+        
+        print("\nRunning inference...")
+        results = model.predict(image)
+        
+        # 保存结果
+        output_path = "test_result_mask.bmp"
+        cv2.imwrite(output_path, results)
+        print(f"\nResults saved to {output_path}")
+        
+        # 批处理测试
+        print("\nTesting batch processing...")
+        batch_size = 4
+        batch_images = [image] * batch_size  # 创建一个包含相同图像的批次
+        batch_results = model.predict_batch(batch_images)
+        print(f"Successfully processed batch of {batch_size} images")
+        
+    except Exception as e:
+        print(f"\nError during testing: {str(e)}")

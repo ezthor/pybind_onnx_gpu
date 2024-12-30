@@ -7,6 +7,15 @@
 
 namespace py = pybind11;
 
+// GPU配置常量
+constexpr int GPU_ID = 0;          // 使用的GPU ID , TODO: 请根据实际需要修改
+constexpr float GPU_MEM_GB = 4.0f; // GPU显存限制（GB） , TODO: 请根据实际需要修改 , 若出错可放宽不确定超出显存时是否出错
+
+// 性能测试配置常量
+constexpr int BATCH_SIZE = 16;      // 批处理大小
+constexpr int WARMUP_ROUNDS = 10;   // 预热轮数
+constexpr int TEST_ROUNDS = 100;    // 测试轮数
+
 int main(int argc, char* argv[]) {
     try {
         // 初始化Python解释器
@@ -16,16 +25,13 @@ int main(int argc, char* argv[]) {
         PyRun_SimpleString("import sys");
         PyRun_SimpleString("sys.path.append(r'C:/Users/admin/AppData/Local/Programs/Python/Python38/lib/site-packages')");
         
-        // 添加Python模块搜索路径
-        py::module::import("sys").attr("path").cast<py::list>().append("..\\..\\python");
-        std::cout << "Python path: " << "..\\..\\python" << std::endl;
+        // 添加Python模块搜索路径 , 此部分出错可注释
+        py::module::import("sys").attr("path").cast<py::list>().append("..\\python");
+        std::cout << "Python path: " << "..\\python" << std::endl;
 
-        // 使用相对路径
-        std::string model_path = "..\\..\\weight\\yolov8l-seg-640-origintype-3000-dynamic.onnx";
-        std::string image_path = "..\\..\\data\\test.bmp";
-        const int BATCH_SIZE = 16;  // 可调整的批大小
-        const int WARMUP_ROUNDS = 10;  // 预热轮数
-        const int TEST_ROUNDS = 100;   // 测试轮数
+        // 使用相对路径 , TODO: 请根据实际需要修改为绝对路径
+        std::string model_path = "..\\weight\\yolov8l-seg-640-origintype-3000-dynamic.onnx";
+        std::string image_path = "..\\data\\test.bmp";
 
         if (argc > 1) {
             image_path = argv[1];
@@ -38,8 +44,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // 创建评估器实例（evaluator构造函数会自己处理GIL）
-        GoldWireSeg::Evaluator evaluator(model_path);
+        // 创建评估器实例，使用常量配置
+        GoldWireSeg::Evaluator evaluator(model_path, GPU_ID, GPU_MEM_GB);
 
         // 测试单张图片推理
         cv::Mat mask;
