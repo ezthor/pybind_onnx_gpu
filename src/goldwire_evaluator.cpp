@@ -11,8 +11,8 @@ Evaluator::Evaluator(const std::string& model_path) : model_path_(model_path) {
         py::module sys = py::module::import("sys");
         sys.attr("path").cast<py::list>().append("../python");
 
-        // 导入自定义的model模块
-        py::object model_module = py::module::import("onnx_model");
+        // 导入模块
+        py::module model_module = py::module::import("onnx_model");
         py::object model_class = model_module.attr("YOLO_ONNX");
         model_instance_ = model_class(model_path);
     } catch (const std::exception& e) {
@@ -40,15 +40,8 @@ Status Evaluator::evaluateSingle(const cv::Mat& bmp_image,
         }
 
         // 转换图像为numpy数组
-        py::array_t<uint8_t> array;
-        if (bmp_image.channels() == 3) {
-            array = py::array_t<uint8_t>(
-                {bmp_image.rows, bmp_image.cols, bmp_image.channels()}, 
-                bmp_image.data
-            );
-        } else {
-            return Status::ERR_INPUT;
-        }
+        py::array_t<uint8_t> array({bmp_image.rows, bmp_image.cols, bmp_image.channels()}, 
+                                 bmp_image.data);
 
         // 调用Python模型进行预测
         py::object py_result = model_instance_.attr("predict")(array);
@@ -62,7 +55,7 @@ Status Evaluator::evaluateSingle(const cv::Mat& bmp_image,
 
             const ssize_t* shape = py_array.shape();
             mask = cv::Mat(shape[0], shape[1], CV_8UC1, py_array.mutable_data());
-            mask = mask.clone(); // 创建深拷贝以确保数据所有权
+            mask = mask.clone();
             return Status::SUCCESS;
         }
 

@@ -3,21 +3,34 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <chrono>
+#include <string>
 
 namespace py = pybind11;
 
 int main(int argc, char* argv[]) {
-    std::string model_path = "../weight/yolov8l-seg-640-origintype-3000.onnx";
-    std::string image_path = "../data/test.bmp";
-
-    if (argc > 1) {
-        image_path = argv[1];
-    }
-
-    // 初始化Python解释器
-    py::scoped_interpreter guard{};
-
     try {
+        // 初始化Python解释器
+        py::scoped_interpreter guard{};
+
+        // 添加Python路径
+        PyRun_SimpleString("import sys");
+        PyRun_SimpleString("sys.path.append(r'C:/Users/admin/AppData/Local/Programs/Python/Python38/lib/site-packages')");
+        
+        // 添加Python模块搜索路径
+        py::module::import("sys").attr("path").cast<py::list>().append("..\\..\\python");
+        std::cout << "Python path: " << "..\\..\\python" << std::endl;
+
+        // 使用相对路径
+        std::string model_path = "..\\..\\weight\\yolov8l-seg-640-origintype-3000-dynamic.onnx";
+        std::string image_path = "..\\..\\data\\test.bmp";
+        const int BATCH_SIZE = 16;  // 可调整的批大小
+        const int WARMUP_ROUNDS = 10;  // 预热轮数
+        const int TEST_ROUNDS = 100;   // 测试轮数
+
+        if (argc > 1) {
+            image_path = argv[1];
+        }
+
         // 读取图像
         cv::Mat bmp_image = cv::imread(image_path, cv::IMREAD_COLOR);
         if (bmp_image.empty()) {
@@ -25,12 +38,12 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // 创建评估器实例
+        // 创建评估器实例（evaluator构造函数会自己处理GIL）
         GoldWireSeg::Evaluator evaluator(model_path);
 
         // 测试单张图片推理
         cv::Mat mask;
-        cv::Mat dummy_tiff; // 空的tiff图像
+        cv::Mat dummy_tiff;
         auto status = evaluator.evaluateSingle(bmp_image, dummy_tiff, mask);
         
         if (status == GoldWireSeg::Status::SUCCESS) {
@@ -41,31 +54,50 @@ int main(int argc, char* argv[]) {
                       << static_cast<int>(status) << std::endl;
         }
 
-        // 在main.cpp中设置批大小
-        const int BATCH_SIZE = 16;  // 可以根据需要调整这个值
-
-        // 创建批处理输入
-        std::vector<cv::Mat> bmp_images(BATCH_SIZE, bmp_image);  // 使用同一张图片复制BATCH_SIZE次
+        // 准备批处理数据
+        std::vector<cv::Mat> bmp_images(BATCH_SIZE, bmp_image);
         std::vector<cv::Mat> tiff_images(BATCH_SIZE);
         std::vector<cv::Mat> masks;
 
-        // 测试批处理性能
-        auto start = std::chrono::high_resolution_clock::now();
-        status = evaluator.evaluateBatch(bmp_images, tiff_images, masks);
-        auto end = std::chrono::high_resolution_clock::now();
-
-        if (status == GoldWireSeg::Status::SUCCESS) {
-            std::chrono::duration<double> elapsed_seconds = end - start;
-            std::cout << "Batch processing completed successfully" << std::endl;
-            std::cout << "Total inference time for " << BATCH_SIZE << " runs: " 
-                      << elapsed_seconds.count() << "s\n";
-            std::cout << "Average time per inference: " 
-                      << (elapsed_seconds.count() / BATCH_SIZE) << "s\n";
-        } else {
-            std::cerr << "Batch processing failed with status: " 
-                      << static_cast<int>(status) << std::endl;
+        // 预热阶段
+        std::cout << "\nWarming up with " << WARMUP_ROUNDS << " rounds..." << std::endl;
+        for (int i = 0; i < WARMUP_ROUNDS; ++i) {
+            status = evaluator.evaluateBatch(bmp_images, tiff_images, masks);
+            if (status != GoldWireSeg::Status::SUCCESS) {
+                std::cerr << "Warmup failed at round " << i << std::endl;
+                return 1;
+            }
         }
 
+        // 正式测试阶段
+        std::cout << "\nStarting performance test with " << TEST_ROUNDS << " rounds..." << std::endl;
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        for (int i = 0; i < TEST_ROUNDS; ++i) {
+            status = evaluator.evaluateBatch(bmp_images, tiff_images, masks);
+            if (status != GoldWireSeg::Status::SUCCESS) {
+                std::cerr << "Test failed at round " << i << std::endl;
+                return 1;
+            }
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed_seconds = end - start;
+        
+        // 输出性能统计
+        double total_time = elapsed_seconds.count();
+        double avg_batch_time = total_time / TEST_ROUNDS;
+        double avg_image_time = avg_batch_time / BATCH_SIZE;
+        
+        std::cout << "\nPerformance Statistics:" << std::endl;
+        std::cout << "Total test time: " << total_time << "s" << std::endl;
+        std::cout << "Average time per batch: " << avg_batch_time * 1000 << "ms" << std::endl;
+        std::cout << "Average time per image: " << avg_image_time * 1000 << "ms" << std::endl;
+        std::cout << "Throughput: " << (BATCH_SIZE * TEST_ROUNDS) / total_time << " images/s" << std::endl;
+
+    } catch (const py::error_already_set& e) {
+        std::cerr << "Python error: " << e.what() << std::endl;
+        return 1;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
