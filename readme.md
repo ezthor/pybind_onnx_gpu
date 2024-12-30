@@ -45,3 +45,15 @@ make -j
 ./GoldWireSegmentation
 ```
 
+
+
+## License
+
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License - see the [LICENSE](LICENSE) file for details.
+
+This means:
+- ✅ You can freely use this code for non-commercial purposes
+- ✅ You can modify and share this code
+- ❌ You cannot use this code for commercial purposes
+- ❌ You cannot sublicense or sell this code
+
