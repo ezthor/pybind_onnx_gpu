@@ -37,10 +37,27 @@ public:
                         const std::atomic<bool>& stop_flag,
                         int iterations = 10);
 
+    // GIL 管理方法
+    void acquireGIL() {
+        if (!gil_acquired_) {
+            gil_acquire_ = std::make_unique<py::gil_scoped_acquire>();
+            gil_acquired_ = true;
+        }
+    }
+
+    void releaseGIL() {
+        if (gil_acquired_) {
+            gil_acquire_.reset();
+            gil_acquired_ = false;
+        }
+    }
+
 private:
     std::string model_path_;
     py::object model_instance_;
     std::mutex eval_mutex_;
+    std::unique_ptr<py::gil_scoped_acquire> gil_acquire_;
+    bool gil_acquired_{false};
 };
 
 } 

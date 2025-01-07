@@ -81,15 +81,54 @@ void simple_thread_test(const std::string& model_path,
                        const std::string& image_path,
                        int gpu_id = 0, 
                        float gpu_mem_gb = 4.0f) {
+    std::cout << "Initializing evaluator for simple test..." << std::endl;
     GoldWireSeg::Evaluator evaluator(model_path, gpu_id, gpu_mem_gb);
+    
+    std::cout << "Loading image..." << std::endl;
     cv::Mat image = cv::imread(image_path);
+    if (image.empty()) {
+        std::cerr << "Failed to load image for simple test" << std::endl;
+        return;
+    }
+    
     cv::Mat mask;
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    std::cout << "Starting single thread inference..." << std::endl;
+    bool inference_completed = false;
+    
+    // 在创建线程前释放GIL
+    py::gil_scoped_release release;
     
     std::thread t1([&]() {
-        evaluator.threadSafeInference(image, mask);
+        try {
+            auto status = evaluator.threadSafeInference(image, mask);
+            if (status == GoldWireSeg::Status::SUCCESS) {
+                inference_completed = true;
+                cv::imwrite("simple_test_result.bmp", mask);
+                std::cout << "Single thread inference successful" << std::endl;
+            } else {
+                std::cerr << "Single thread inference failed with status: " 
+                         << static_cast<int>(status) << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error in simple test thread: " << e.what() << std::endl;
+        }
     });
     
-    t1.join();
+    // 设置超时时间（例如10秒）
+    if (t1.joinable()) {
+        t1.join();
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end_time - start_time;
+        
+        if (inference_completed) {
+            std::cout << "Simple test completed in " << elapsed.count() << "s" << std::endl;
+            std::cout << "Result saved as 'simple_test_result.bmp'" << std::endl;
+        } else {
+            std::cerr << "Simple test failed or timed out" << std::endl;
+        }
+    }
 }
 
 // 详细的测试功能
@@ -97,14 +136,31 @@ void detailed_test(const std::string& model_path,
                   const std::string& image_path,
                   int gpu_id = 0, 
                   float gpu_mem_gb = 4.0f) {
+    std::cout << "Initializing evaluators for detailed test..." << std::endl;
+    
     std::atomic<int> successful_inferences(0);
     std::atomic<int> failed_inferences(0);
     std::atomic<bool> stop_flag(false);
     
     GoldWireSeg::Evaluator evaluator1(model_path, gpu_id, gpu_mem_gb);
-    GoldWireSeg::Evaluator evaluator2(model_path, gpu_id, gpu_mem_gb);
+    std::cout << "Evaluator 1 initialized" << std::endl;
     
+    GoldWireSeg::Evaluator evaluator2(model_path, gpu_id, gpu_mem_gb);
+    std::cout << "Evaluator 2 initialized" << std::endl;
+    
+    std::cout << "Loading image..." << std::endl;
     cv::Mat image = cv::imread(image_path);
+    if (image.empty()) {
+        std::cerr << "Failed to load image for detailed test" << std::endl;
+        return;
+    }
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    // 在创建线程前释放GIL
+    py::gil_scoped_release release;
+    
+    std::cout << "Starting detailed test threads..." << std::endl;
     
     std::thread t1([&]() {
         evaluator1.testInference(image, 1, successful_inferences, 
@@ -119,7 +175,19 @@ void detailed_test(const std::string& model_path,
     t1.join();
     t2.join();
     
-    // 输出统计信息...
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end_time - start_time;
+    
+    // 输出统计信息
+    std::cout << "\nDetailed test statistics:" << std::endl;
+    std::cout << "Total time: " << elapsed.count() << "s" << std::endl;
+    std::cout << "Successful inferences: " << successful_inferences << std::endl;
+    std::cout << "Failed inferences: " << failed_inferences << std::endl;
+    if (successful_inferences + failed_inferences > 0) {
+        std::cout << "Average time per inference: " 
+                  << elapsed.count() / (successful_inferences + failed_inferences) 
+                  << "s" << std::endl;
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -137,8 +205,15 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signal_handler);
 
     try {
-        std::cout << "Starting multi-instance inference test..." << std::endl;
-        
+        std::cout << "\n=== Starting Simple Thread Test ===" << std::endl;
+        simple_thread_test(model_path, image_path, GPU_ID, GPU_MEM_GB);
+        std::cout << "Simple thread test completed\n" << std::endl;
+
+        std::cout << "\n=== Starting Detailed Test ===" << std::endl;
+        detailed_test(model_path, image_path, GPU_ID, GPU_MEM_GB);
+        std::cout << "Detailed test completed\n" << std::endl;
+
+        std::cout << "\n=== Starting Multi-Instance Test ===" << std::endl;
         // 读取图像
         cv::Mat bmp_image = cv::imread(image_path, cv::IMREAD_COLOR);
         if (bmp_image.empty()) {
@@ -147,11 +222,11 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "Image loaded successfully" << std::endl;
 
-        // 创建两个评估器实例，分别使用不同的GPU（如果有多GPU）或同一个GPU
-        GoldWireSeg::Evaluator evaluator1(model_path, 0, GPU_MEM_GB);  // GPU 0
+        // 创建两个评估器实例
+        GoldWireSeg::Evaluator evaluator1(model_path, 0, GPU_MEM_GB);
         std::cout << "Evaluator 1 initialized" << std::endl;
         
-        GoldWireSeg::Evaluator evaluator2(model_path, 0, GPU_MEM_GB);  // 也使用 GPU 0
+        GoldWireSeg::Evaluator evaluator2(model_path, 0, GPU_MEM_GB);
         std::cout << "Evaluator 2 initialized" << std::endl;
 
         // 确保在创建线程前释放GIL
@@ -161,7 +236,7 @@ int main(int argc, char* argv[]) {
         
         auto start_time = std::chrono::high_resolution_clock::now();
         
-        // 每个一个线程
+        // 每个评估器一个线程
         std::thread t1(thread_func, std::ref(evaluator1), std::ref(bmp_image), 1);
         std::thread t2(thread_func, std::ref(evaluator2), std::ref(bmp_image), 2);
         
@@ -177,7 +252,7 @@ int main(int argc, char* argv[]) {
         }
 
         // 输出统计信息
-        std::cout << "\nTest completed!" << std::endl;
+        std::cout << "\nMulti-instance test completed!" << std::endl;
         std::cout << "Total time: " << total_time.count() << "s" << std::endl;
         std::cout << "Total successful inferences: " << successful_inferences << std::endl;
         std::cout << "Total failed inferences: " << failed_inferences << std::endl;
