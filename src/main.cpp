@@ -76,6 +76,52 @@ void thread_func(GoldWireSeg::Evaluator& evaluator, const cv::Mat& image, int th
     }
 }
 
+// 简单的线程使用示例
+void simple_thread_test(const std::string& model_path, 
+                       const std::string& image_path,
+                       int gpu_id = 0, 
+                       float gpu_mem_gb = 4.0f) {
+    GoldWireSeg::Evaluator evaluator(model_path, gpu_id, gpu_mem_gb);
+    cv::Mat image = cv::imread(image_path);
+    cv::Mat mask;
+    
+    std::thread t1([&]() {
+        evaluator.threadSafeInference(image, mask);
+    });
+    
+    t1.join();
+}
+
+// 详细的测试功能
+void detailed_test(const std::string& model_path, 
+                  const std::string& image_path,
+                  int gpu_id = 0, 
+                  float gpu_mem_gb = 4.0f) {
+    std::atomic<int> successful_inferences(0);
+    std::atomic<int> failed_inferences(0);
+    std::atomic<bool> stop_flag(false);
+    
+    GoldWireSeg::Evaluator evaluator1(model_path, gpu_id, gpu_mem_gb);
+    GoldWireSeg::Evaluator evaluator2(model_path, gpu_id, gpu_mem_gb);
+    
+    cv::Mat image = cv::imread(image_path);
+    
+    std::thread t1([&]() {
+        evaluator1.testInference(image, 1, successful_inferences, 
+                               failed_inferences, stop_flag);
+    });
+    
+    std::thread t2([&]() {
+        evaluator2.testInference(image, 2, successful_inferences, 
+                               failed_inferences, stop_flag);
+    });
+    
+    t1.join();
+    t2.join();
+    
+    // 输出统计信息...
+}
+
 int main(int argc, char* argv[]) {
     std::string model_path = "../weight/yolov8l-seg-640-origintype-3000-dynamic.onnx";
     std::string image_path = "../data/test.bmp";
@@ -115,7 +161,7 @@ int main(int argc, char* argv[]) {
         
         auto start_time = std::chrono::high_resolution_clock::now();
         
-        // 每个评估器一个线程
+        // 每个一个线程
         std::thread t1(thread_func, std::ref(evaluator1), std::ref(bmp_image), 1);
         std::thread t2(thread_func, std::ref(evaluator2), std::ref(bmp_image), 2);
         
