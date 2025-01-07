@@ -38,11 +38,15 @@ void thread_func(GoldWireSeg::Evaluator& evaluator, const cv::Mat& image, int th
             auto start = std::chrono::high_resolution_clock::now();
             auto status = GoldWireSeg::Status::SUCCESS;
             
-            // 只在调用Python代码时获取GIL
+            std::cout << "Thread " << thread_id << " - Iteration " << i + 1 
+                     << ": Acquiring GIL..." << std::endl;
             {
                 py::gil_scoped_acquire acquire;
+                std::cout << "Thread " << thread_id << " - GIL acquired" << std::endl;
                 status = evaluator.evaluateSingle(image, dummy_tiff, mask);
-            }  // GIL 在这里自动释放
+                std::cout << "Thread " << thread_id << " - Inference completed" << std::endl;
+            }
+            std::cout << "Thread " << thread_id << " - GIL released" << std::endl;
             
             auto end = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> elapsed = end - start;
@@ -97,12 +101,15 @@ void simple_thread_test(const std::string& model_path,
     std::cout << "Starting single thread inference..." << std::endl;
     bool inference_completed = false;
     
-    // 在创建线程前释放GIL
+    std::cout << "Releasing GIL before creating thread..." << std::endl;
     py::gil_scoped_release release;
     
     std::thread t1([&]() {
         try {
+            std::cout << "Simple test thread: Acquiring GIL..." << std::endl;
             auto status = evaluator.threadSafeInference(image, mask);
+            std::cout << "Simple test thread: GIL operations completed" << std::endl;
+            
             if (status == GoldWireSeg::Status::SUCCESS) {
                 inference_completed = true;
                 cv::imwrite("simple_test_result.bmp", mask);
@@ -116,7 +123,6 @@ void simple_thread_test(const std::string& model_path,
         }
     });
     
-    // 设置超时时间（例如10秒）
     if (t1.joinable()) {
         t1.join();
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -157,19 +163,23 @@ void detailed_test(const std::string& model_path,
     
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    // 在创建线程前释放GIL
-    py::gil_scoped_release release;
-    
     std::cout << "Starting detailed test threads..." << std::endl;
     
+    std::cout << "Releasing GIL before creating threads for detailed test..." << std::endl;
+    py::gil_scoped_release release;
+    
     std::thread t1([&]() {
+        std::cout << "Detailed test thread 1: Starting..." << std::endl;
         evaluator1.testInference(image, 1, successful_inferences, 
                                failed_inferences, stop_flag);
+        std::cout << "Detailed test thread 1: Completed" << std::endl;
     });
     
     std::thread t2([&]() {
+        std::cout << "Detailed test thread 2: Starting..." << std::endl;
         evaluator2.testInference(image, 2, successful_inferences, 
                                failed_inferences, stop_flag);
+        std::cout << "Detailed test thread 2: Completed" << std::endl;
     });
     
     t1.join();
@@ -228,15 +238,14 @@ int main(int argc, char* argv[]) {
         
         GoldWireSeg::Evaluator evaluator2(model_path, 0, GPU_MEM_GB);
         std::cout << "Evaluator 2 initialized" << std::endl;
-
-        // 确保在创建线程前释放GIL
-        py::gil_scoped_release release;
         
         std::cout << "Starting threads with separate evaluators..." << std::endl;
         
         auto start_time = std::chrono::high_resolution_clock::now();
         
-        // 每个评估器一个线程
+        std::cout << "Releasing GIL before creating threads for multi-instance test..." << std::endl;
+        py::gil_scoped_release release;
+        
         std::thread t1(thread_func, std::ref(evaluator1), std::ref(bmp_image), 1);
         std::thread t2(thread_func, std::ref(evaluator2), std::ref(bmp_image), 2);
         
