@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 project(GoldWireSegmentation)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 
 # 添加线程支持
 find_package(Threads REQUIRED)
