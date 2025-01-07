@@ -3,11 +3,10 @@ project(GoldWireSegmentation)
 
 set(CMAKE_CXX_STANDARD 11)
 
-# 添加pybind11子模块（或使用已安装的pybind11）
-# 如果没有将pybind11作为子模块，可以使用以下方式引入
-# find_package(pybind11 REQUIRED)
+# 添加线程支持
+find_package(Threads REQUIRED)
 
-# 将pybind11放在项目的第三方目录下
+# 添加pybind11子模块
 add_subdirectory(third_party/pybind11)
 
 # 查找Python安装
@@ -22,13 +21,13 @@ link_directories(${Python3_LIBRARY_DIRS})
 include_directories(include)
 file(GLOB SOURCES "src/*.cpp")
 
-# 修改可执行文件名称
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# 链接pybind11、Python和OpenCV库
+# 链接库时添加 Threads::Threads
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
     pybind11::embed 
     ${Python3_LIBRARIES} 
     ${OpenCV_LIBS}
+    Threads::Threads
 )

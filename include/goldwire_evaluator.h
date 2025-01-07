@@ -5,6 +5,7 @@
 #include <opencv2/opencv.hpp>
 #include "goldwire_status.h"
 #include <pybind11/pybind11.h>
+#include <mutex>
 
 namespace py = pybind11;
 
@@ -26,6 +27,7 @@ public:
 private:
     std::string model_path_;
     py::object model_instance_;
+    std::mutex eval_mutex_;
 };
 
 } 

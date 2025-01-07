@@ -28,6 +28,9 @@ Status Evaluator::evaluateSingle(const cv::Mat& bmp_image,
                                 const cv::Mat& tiff_image,
                                 cv::Mat& mask) {
     try {
+        // 获取GIL
+        py::gil_scoped_acquire acquire;
+        
         if (bmp_image.empty()) {
             return Status::ERR_INPUT;
         }
