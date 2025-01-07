@@ -58,6 +58,7 @@ private:
     std::mutex eval_mutex_;
     std::unique_ptr<py::gil_scoped_acquire> gil_acquire_;
     bool gil_acquired_{false};
+    std::mutex gil_mutex_;  // 保护 GIL 操作的互斥锁
 };
 
 } 

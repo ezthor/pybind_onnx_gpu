@@ -143,19 +143,27 @@ Status Evaluator::evaluateBatch(const std::vector<cv::Mat>& bmp_images,
 
 Status Evaluator::threadSafeInference(const cv::Mat& image, cv::Mat& mask) {
     try {
-        // 确保 GIL 被获取
-        acquireGIL();
+        // 使用 RAII 方式管理 GIL
+        {
+            std::lock_guard<std::mutex> lock(gil_mutex_);  // 保护 GIL 操作
+            acquireGIL();
+        }
         
         // 执行推理
         auto status = evaluateSingle(image, cv::Mat(), mask);
         
-        // 释放 GIL
-        releaseGIL();
+        {
+            std::lock_guard<std::mutex> lock(gil_mutex_);
+            releaseGIL();
+        }
         
         return status;
     } catch (const std::exception& e) {
         std::cerr << "Thread inference error: " << e.what() << std::endl;
-        releaseGIL();  // 确保在异常情况下也释放 GIL
+        {
+            std::lock_guard<std::mutex> lock(gil_mutex_);
+            releaseGIL();
+        }
         return Status::ERR_UNKNOWN;
     }
 }

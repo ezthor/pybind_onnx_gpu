@@ -85,10 +85,10 @@ void simple_thread_test(const std::string& model_path,
                        const std::string& image_path,
                        int gpu_id = 0, 
                        float gpu_mem_gb = 4.0f) {
-    std::cout << "Initializing evaluator for simple test..." << std::endl;
+    //std::cout << "Initializing evaluator for simple test..." << std::endl;
     GoldWireSeg::Evaluator evaluator(model_path, gpu_id, gpu_mem_gb);
     
-    std::cout << "Loading image..." << std::endl;
+    //std::cout << "Loading image..." << std::endl;
     cv::Mat image = cv::imread(image_path);
     if (image.empty()) {
         std::cerr << "Failed to load image for simple test" << std::endl;
@@ -96,19 +96,24 @@ void simple_thread_test(const std::string& model_path,
     }
     
     cv::Mat mask;
-    auto start_time = std::chrono::high_resolution_clock::now();
+    //auto start_time = std::chrono::high_resolution_clock::now();
     
-    std::cout << "Starting single thread inference..." << std::endl;
+    //std::cout << "Starting single thread inference..." << std::endl;
     bool inference_completed = false;
     
     std::cout << "Releasing GIL before creating thread..." << std::endl;
+
+    /*---------------- 注意，主线程中创建线程前必须释放GIL，否则线程无法获取GIL ---------------- */
+
     py::gil_scoped_release release;
+
+    /*---------------- 注意，主线程中创建线程前必须释放GIL，否则线程无法获取GIL ---------------- */
     
     std::thread t1([&]() {
         try {
-            std::cout << "Simple test thread: Acquiring GIL..." << std::endl;
+            //std::cout << "Simple test thread: Acquiring GIL..." << std::endl;
             auto status = evaluator.threadSafeInference(image, mask);
-            std::cout << "Simple test thread: GIL operations completed" << std::endl;
+            //std::cout << "Simple test thread: GIL operations completed" << std::endl;
             
             if (status == GoldWireSeg::Status::SUCCESS) {
                 inference_completed = true;
@@ -125,11 +130,11 @@ void simple_thread_test(const std::string& model_path,
     
     if (t1.joinable()) {
         t1.join();
-        auto end_time = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end_time - start_time;
+        //auto end_time = std::chrono::high_resolution_clock::now();
+        //std::chrono::duration<double> elapsed = end_time - start_time;
         
         if (inference_completed) {
-            std::cout << "Simple test completed in " << elapsed.count() << "s" << std::endl;
+            //std::cout << "Simple test completed in " << elapsed.count() << "s" << std::endl;
             std::cout << "Result saved as 'simple_test_result.bmp'" << std::endl;
         } else {
             std::cerr << "Simple test failed or timed out" << std::endl;
